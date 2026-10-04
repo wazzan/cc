@@ -1,6 +1,6 @@
 # token-weather
 
-A Claude Code mod that shows a live forecast of your context window in the band above the prompt. A second row shows your plan limits, token counts and cost, in a dark style. Both rows update after every turn. The desktop app draws it in its own dark palette, as a forecast line over gray chips like its diff chip. The terminal draws it as plain text in the terminal's own colors, so it suits light and dark themes alike.
+A Claude Code mod that shows a live forecast of your context window in the band above the prompt. A second row shows your plan limits, token counts and cost, in a dark style. Both rows update after every turn. The desktop app draws it in its own dark palette, as a forecast line over gray chips like its diff chip. The terminal draws it as plain text in the terminal's own colors, so it suits light and dark themes alike, and sizes it to the window: the bars grow with the width, and on a narrow window the row wraps.
 
 ![token-weather in the desktop app](docs/token-weather-preview.png)
 
@@ -121,7 +121,7 @@ Load a working copy for one session with `claude --plugin-dir ./token-weather`; 
 
 ```sh
 claude plugin validate token-weather   # what the module hooks and calls
-claude plugin test token-weather       # 21 tests: formatting, the band on terminal + desktop, /token-weather, saved plan windows, minimizing
+claude plugin test token-weather       # 22 tests: formatting, the band on terminal + desktop, /token-weather, saved plan windows, minimizing
 ```
 
 Layout:

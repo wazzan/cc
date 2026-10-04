@@ -221,3 +221,22 @@ export function trendText(history: number[]): string {
     .map(tokens => levels[span > 0 ? Math.min(levels.length - 1, Math.floor(((tokens - low) / span) * levels.length)) : 0] ?? '▁')
     .join('')
 }
+
+export type TerminalLayout = { width: number; gauge: number; bar: number; isNarrow: boolean }
+
+/**
+ * Sizes the terminal band to the columns it has: the context gauge and the
+ * plan bars grow with the window, and the band leaves room at its right edge
+ * for the engine's own collapse control.
+ */
+export function terminalLayout(columns: number): TerminalLayout {
+  const width = Math.max(40, columns - 5)
+  const clamp = (n: number, low: number, high: number) => Math.max(low, Math.min(high, Math.round(n)))
+
+  return {
+    width,
+    gauge: clamp((width - 64) / 2, 8, 40),
+    bar: clamp((width - 80) / 5, 5, 16),
+    isNarrow: width < 100,
+  }
+}

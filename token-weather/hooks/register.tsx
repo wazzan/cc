@@ -15,6 +15,7 @@ import {
   paceOf,
   percentOf,
   shownLimits,
+  terminalLayout,
   textReport,
   trendText,
   warningLevel,
@@ -309,22 +310,26 @@ export const register: Register = on => {
     }
 
     const { Box, Text, Button } = $.ui.resolve(e)
+    // Sized to the window: a blank line above, bars that grow with the width,
+    // and the right-hand items held at the band's right edge.
+    const size = terminalLayout(e.props.bodyColumns)
 
     if (isMini) {
       const [head, ...rest] = miniText(snap).split(' · ')
 
       return (
-        <Box flexDirection="row" columnGap={2}>
-          <Text color={weatherFor(snap.percent ?? 0).color} bold>
-            {head}
-          </Text>
-          {rest.length > 0 && <Text dimColor>· {rest.join(' · ')}</Text>}
+        <Box flexDirection="row" justifyContent="space-between" width={size.width} paddingTop={1}>
+          <Box flexDirection="row" columnGap={2}>
+            <Text color={weatherFor(snap.percent ?? 0).color} bold>
+              {head}
+            </Text>
+            {rest.length > 0 && <Text dimColor>· {rest.join(' · ')}</Text>}
+          </Box>
           <Button key="expand" label="expand" hotkey="e" plain dimColor onPress={expand} />
         </Box>
       )
     }
 
-    const isNarrow = e.props.bodyColumns < 110
     const weather = weatherFor(snap.percent ?? 0)
 
     // A bar's runs: the fill in its color, the rest dim, the clock's marker bold.
@@ -357,30 +362,34 @@ export const register: Register = on => {
       const blank = HISTORY_LENGTH - Math.min(HISTORY_LENGTH, past.length)
 
       return (
-        <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
-          <Text color={weather.color} bold>
-            {weather.icon} {weather.word}
-          </Text>
-          <Text bold>{percent}%</Text>
-          {barText(barCells(percent, undefined, isNarrow ? 10 : 16), weather.color)}
-          <Box flexDirection="row">
-            <Text>{formatTokens(tokens)}</Text>
-            <Text dimColor> / {formatWindow(snap.window)}</Text>
-          </Box>
-          {past.length > 0 && (
-            <Box flexDirection="row">
-              {blank > 0 && <Text dimColor>{'·'.repeat(blank)}</Text>}
-              <Text color={weather.color} dimColor>
-                {trendText(past)}
-              </Text>
-            </Box>
-          )}
-          {delta !== undefined && (
-            <Text color={delta.delta < 0 ? 'green' : undefined} dimColor={delta.delta >= 0}>
-              {delta.delta < 0 ? '-' : '+'}
-              {formatTokens(Math.abs(delta.delta))} last turn
+        <Box flexDirection="row" flexWrap="wrap" justifyContent="space-between" columnGap={2}>
+          <Box flexDirection="row" columnGap={2}>
+            <Text color={weather.color} bold>
+              {weather.icon} {weather.word}
             </Text>
-          )}
+            <Text bold>{percent}%</Text>
+            {barText(barCells(percent, undefined, size.gauge), weather.color)}
+            <Box flexDirection="row">
+              <Text>{formatTokens(tokens)}</Text>
+              <Text dimColor> / {formatWindow(snap.window)}</Text>
+            </Box>
+          </Box>
+          <Box flexDirection="row" columnGap={2}>
+            {past.length > 0 && (
+              <Box flexDirection="row">
+                {blank > 0 && <Text dimColor>{'·'.repeat(blank)}</Text>}
+                <Text color={weather.color} dimColor>
+                  {trendText(past)}
+                </Text>
+              </Box>
+            )}
+            {delta !== undefined && (
+              <Text color={delta.delta < 0 ? 'green' : undefined} dimColor={delta.delta >= 0}>
+                {delta.delta < 0 ? '-' : '+'}
+                {formatTokens(Math.abs(delta.delta))} last turn
+              </Text>
+            )}
+          </Box>
         </Box>
       )
     }
@@ -405,7 +414,7 @@ export const register: Register = on => {
           <Text dimColor>
             {icon} {windowLabel(limit.kind)}{' '}
           </Text>
-          {barText(barCells(limit.percentUsed, elapsed, isNarrow ? 6 : 8), PACE_COLOR[pace])}
+          {barText(barCells(limit.percentUsed, elapsed, size.bar), PACE_COLOR[pace])}
           <Text bold color={pace === 'ok' ? undefined : PACE_COLOR[pace]}>
             {' '}
             {formatPercent(limit.percentUsed)}
@@ -427,12 +436,20 @@ export const register: Register = on => {
     ]
     if (snap.costUsd !== undefined && snap.costUsd > 0) segments.push(<Text>${snap.costUsd.toFixed(2)}</Text>)
 
+    // On a wide window the segments spread evenly to the right edge; on a
+    // narrow one they pack left and wrap.
     return (
-      <Box flexDirection="column">
+      <Box flexDirection="column" width={size.width} paddingTop={1}>
         {snap.tokens === undefined || snap.percent === undefined ? calm : forecast(snap.tokens, snap.percent)}
-        <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
-          {segments.flatMap((segment, i) => (i === 0 ? [segment] : [<Text dimColor>│</Text>, segment]))}
-          <Text> </Text>
+        <Box
+          flexDirection="row"
+          flexWrap="wrap"
+          justifyContent={size.isNarrow ? 'flex-start' : 'space-between'}
+          columnGap={size.isNarrow ? 3 : 2}
+        >
+          {size.isNarrow
+            ? segments
+            : segments.flatMap((segment, i) => (i === 0 ? [segment] : [<Text dimColor>│</Text>, segment]))}
           <Button key="minimize" label="minimize" hotkey="m" plain dimColor onPress={minimize} />
         </Box>
         {level > 0 && (

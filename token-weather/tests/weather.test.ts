@@ -9,6 +9,7 @@ import {
   lastTurnDelta,
   paceOf,
   sparkCells,
+  terminalLayout,
   trendText,
   warningLevel,
   weatherFor,
@@ -50,6 +51,12 @@ describe('weather', () => {
     expect(trendText([100, 150, 200])).toBe('▁▄▇')
     expect(trendText([5_000])).toBe('▁')
     expect(trendText(Array.from({ length: 20 }, (_, i) => i))).toHaveLength(12)
+  })
+
+  test('the terminal band grows with the window and keeps clear of its right edge', () => {
+    expect(terminalLayout(80)).toEqual({ width: 75, gauge: 8, bar: 5, isNarrow: true })
+    expect(terminalLayout(125)).toEqual({ width: 120, gauge: 28, bar: 8, isNarrow: false })
+    expect(terminalLayout(200)).toEqual({ width: 195, gauge: 40, bar: 16, isNarrow: false })
   })
 
   test('the last turn says how much it added', () => {
