@@ -2,6 +2,8 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import {
   barCells,
+  cacheTtlMs,
+  cacheView,
   elapsedFraction,
   formatDuration,
   formatTokens,
@@ -57,6 +59,32 @@ describe('weather', () => {
     expect(terminalLayout(80)).toEqual({ width: 75, gauge: 8, bar: 5, isNarrow: true })
     expect(terminalLayout(125)).toEqual({ width: 120, gauge: 28, bar: 8, isNarrow: false })
     expect(terminalLayout(200)).toEqual({ width: 195, gauge: 40, bar: 16, isNarrow: false })
+    // Room on line one for the cache countdown comes out of the gauge.
+    expect(terminalLayout(125, 18).gauge).toBe(19)
+  })
+
+  test('the prompt cache lifetime is picked in Claude Code\'s order', () => {
+    const plan = [{ kind: 'five_hour', percentUsed: 20 }, { kind: 'seven_day', percentUsed: 58 }]
+    const hour = 60 * 60_000
+    const five = 5 * 60_000
+    expect(cacheTtlMs({}, plan)).toBe(hour)
+    expect(cacheTtlMs({}, [])).toBe(five)
+    expect(cacheTtlMs({}, [{ kind: 'five_hour', percentUsed: 100 }])).toBe(five)
+    expect(cacheTtlMs({ force5m: '1', ttl: '1h' }, plan)).toBe(five)
+    expect(cacheTtlMs({ ttl: '5m', setting: '1h' }, plan)).toBe(five)
+    expect(cacheTtlMs({ setting: '1h' }, [])).toBe(hour)
+    expect(cacheTtlMs({ enable1h: '1' }, [])).toBe(hour)
+    expect(cacheTtlMs({ ttl: '2h' }, [])).toBe(five)
+    expect(cacheTtlMs({ disabled: '1' }, plan)).toBe(0)
+  })
+
+  test('the cache countdown reads left, then expiring, then expired', () => {
+    const hour = 60 * 60_000
+    expect(cacheView(null, hour, 0)).toBeUndefined()
+    expect(cacheView(0, 0, 0)).toBeUndefined()
+    expect(cacheView(0, hour, 18 * 60_000)).toEqual({ text: '42m left', tone: 'ok' })
+    expect(cacheView(0, hour, 51 * 60_000)).toEqual({ text: '9m left', tone: 'expiring' })
+    expect(cacheView(0, hour, hour)).toEqual({ text: 'expired', tone: 'expired' })
   })
 
   test('the last turn says how much it added', () => {

@@ -2,6 +2,7 @@
 // dark palette, a forecast line over gray chips like its diff chip. Pure, no `$`.
 
 import type { RateWindow, Snapshot, Totals } from '../types'
+import type { CacheView } from './weather'
 import {
   HISTORY_LENGTH,
   elapsedFraction,
@@ -64,6 +65,8 @@ const ICON = {
   down: '<path d="M8 3v10"/><path d="M4.5 9.5 8 13l3.5-3.5"/>',
   layers: '<path d="M8 2.2 14 5.2 8 8.2 2 5.2z"/><path d="M2 8.2l6 3 6-3"/><path d="M2 11l6 3 6-3"/>',
   warning: '<path d="M8 2.2 14.4 13.4H1.6z"/><path d="M8 6.5v3"/><path d="M8 11.4v.1"/>',
+  hourglass:
+    '<path d="M4 2.5h8M4 13.5h8"/><path d="M5 2.5v2a3 3 0 0 0 1.4 2.6L8 8l1.6-.9A3 3 0 0 0 11 4.5v-2"/><path d="M5 13.5v-2a3 3 0 0 1 1.4-2.6L8 8l1.6.9a3 3 0 0 1 1.4 2.6v2"/>',
   bolt: '<path d="M9 1.8 3.8 9h4l-1 5.2L12.2 7h-4z"/>',
 } as const
 
@@ -222,6 +225,7 @@ export function desktopBand(
   now: number,
   maxWidth: number,
   alt: string,
+  cache?: CacheView,
 ): DesktopBand {
   const percent = snap.percent ?? 0
   const weather = weatherFor(percent)
@@ -241,6 +245,20 @@ export function desktopBand(
       mono(`/ ${formatWindow(snap.window)}`, APP.muted),
     )
     gaps.push(10, 10, 10, 6)
+    if (cache !== undefined) {
+      // How long the prompt cache lasts before the next message re-reads it all.
+      forecast.push(
+        line(
+          [
+            icon(ICON.hourglass, APP.muted, 13),
+            sans('cache', APP.muted),
+            mono(cache.text, cache.tone === 'ok' ? APP.text : APP.amber, cache.tone === 'ok' ? 400 : 600),
+          ],
+          [5, 6],
+        ),
+      )
+      gaps.push(14)
+    }
     const delta = lastTurnDelta(history)
     if (delta !== undefined) {
       const sign = delta.delta < 0 ? '-' : '+'

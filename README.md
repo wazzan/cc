@@ -11,7 +11,7 @@ A Claude Code mod that shows a live forecast of your context window in the band 
 **Row 1: the forecast**
 
 ```
-☂ Showers  67%  ━━━━━━━━━━━━━━━━  134.4k / 200k  ▁▂▂▃▃▄▄▅▅▆▆▇  +98.3k last turn
+☂ Showers  67%  ━━━━━━━━━━━━━━━━  134.4k / 200k  ◴ cache 42m left  ▁▂▂▃▃▄▄▅▅▆▆▇  +98.3k last turn
 ```
 
 | Context used | Weather          | Color   |
@@ -23,6 +23,7 @@ A Claude Code mod that shows a live forecast of your context window in the band 
 | 90% and up   | ↯ Compact soon   | red     |
 
 - **Percentage, gauge and tokens**: the input tokens of the last response, out of the model's window.
+- **Cache**: how long until the prompt cache expires. After that, your next message re-reads the whole context at full price, which is slower and costs more. The countdown starts again at every reply, turns amber in its last fifth, then reads `expired`. The cache lasts one hour on a Claude subscription within your plan, and five minutes with an API key or on usage credits; `CLAUDE_CODE_PROMPT_CACHE_TTL`, the `promptCacheTtl` setting, `FORCE_PROMPT_CACHING_5M` and `ENABLE_PROMPT_CACHING_1H` change it as they do for Claude Code.
 - **Chart**: the context fill at the end of each of the last 12 turns, from the lowest turn shown to the highest, so the trend reads. `·` marks turns that haven't happened yet.
 - **Last turn**: how much the last turn added. After a compaction it shows how much was freed instead, in green.
 
@@ -121,13 +122,13 @@ Load a working copy for one session with `claude --plugin-dir ./token-weather`; 
 
 ```sh
 claude plugin validate token-weather   # what the module hooks and calls
-claude plugin test token-weather       # 22 tests: formatting, the band on terminal + desktop, /token-weather, saved plan windows, minimizing
+claude plugin test token-weather       # 28 tests: formatting, the band on terminal + desktop, /token-weather, saved plan windows, minimizing
 ```
 
 Layout:
 
 - `token-weather/hooks/register.tsx`: hooks `session.start`, `session.measure`, `turn.complete`, `session.compact`, `classic.SessionStart` (to restart the forecast after `/clear`, `/resume` and `/branch`), the `/token-weather` command (with `mini` and `full`) and the `AbovePrompt` render
-- `token-weather/hooks/weather.ts`: pure helpers (weather bands, sparkline, bars, formatting)
+- `token-weather/hooks/weather.ts`: pure helpers (weather bands, sparkline, bars, cache lifetime, formatting)
 - `token-weather/hooks/desktop.ts`: the desktop app's band, one transparent SVG in the app's colors
 - `token-weather/types/index.d.ts`: the `$.state` contract
 - `.claude-plugin/marketplace.json`: makes this repo the `wazzan-mods` marketplace

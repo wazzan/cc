@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
-import type { Engine } from 'claude-code/testing'
+import type { Engine, MockClock } from 'claude-code/testing'
 import type { On, SessionUsage } from 'claude-code'
 
 const NOW = Date.parse('2026-10-03T12:00:00Z')
@@ -38,11 +38,15 @@ function usageAt(tokens: number, fiveHour = 20): SessionUsage {
   }
 }
 
+let clock: MockClock
+
 /** The engine beneath the mod: usage as `current()` says, turns and toasts recorded. */
-function world(on: On, current: () => SessionUsage, stored: Record<string, unknown> = {}) {
+function world(on: On, current: () => SessionUsage, stored: Record<string, unknown> = {}, env: Record<string, string> = {}) {
   const toasts: string[] = []
-  mock.clock(on, { now: NOW })
+  clock = mock.clock(on, { now: NOW })
   mock.store(on, stored)
+  mock.env(on, env)
+  on('settings.read', () => ({ value: {} }))
   on('session.usage', () => ({ value: current() }))
   on('session.measure', ($, e) => ({ changed: e.changed }))
   on('turn.complete', ($, e) => ({ text: e.answer }))
@@ -95,6 +99,7 @@ describe('token-weather band', () => {
       expect(await ui.find({ type: 'Text', text: '+98.3k last turn' })).toBeDefined()
       // Plan windows, tokens and cost sit between dim separators, with no backgrounds.
       expect(await ui.findAll({ type: 'Text', text: '│' })).toHaveLength(3)
+      expect(await ui.find({ type: 'Text', text: '1h left' })).toBeDefined()
       expect(await ui.find({ type: 'Text', text: '↑15.6k' })).toBeDefined()
       expect(await ui.find({ type: 'Text', text: '··········' })).toBeDefined()
       expect(await ui.find({ type: 'Text', text: '5h' })).toBeDefined()
@@ -115,7 +120,7 @@ describe('token-weather band', () => {
     const desktop = await $.ui.mount({ ...BAND, surface: 'desktop' })
     const svg = await desktop.find({ type: 'Svg' })
     const source = String(svg?.props.source)
-    for (const shown of ['Showers', '67%', '134.4k', '/ 200k', '+98.3k', 'last turn', '20%', '2h 40m', '58%', '1d 7h', '15.6k', '4.5k', '920.1k', '$4.32']) {
+    for (const shown of ['Showers', '67%', '134.4k', '/ 200k', '+98.3k', 'last turn', '20%', '2h 40m', '58%', '1d 7h', 'cache', '1h left', '15.6k', '4.5k', '920.1k', '$4.32']) {
       expect(source).toContain(shown)
     }
     expect(String(svg?.props.alt)).toContain('☂ Showers  67%  134.4k / 200k')
@@ -357,6 +362,59 @@ describe('token-weather band', () => {
       expect(await ui.find({ type: 'Button', key: 'expand' })).toBeDefined()
       expect((await run($, 'full')).text).toContain('expanded')
       expect(await ui.find({ type: 'Button', key: 'minimize' })).toBeDefined()
+    })
+  })
+
+  describe('prompt cache countdown', () => {
+    test('counts down from the last reply, turns amber, then expires', async ($, on) => {
+      world(on, () => usageAt(80_000))
+      await turn($, 't1')
+      const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+      expect(await ui.find({ type: 'Text', text: '1h left' })).toBeDefined()
+
+      await clock.advance(50 * MINUTE)
+      await ui.redraw()
+      const expiring = await ui.find({ type: 'Text', text: '10m left' })
+      expect(expiring?.props.color).toBe('yellow')
+
+      await clock.advance(11 * MINUTE)
+      await ui.redraw()
+      expect(await ui.find({ type: 'Text', text: 'expired' })).toBeDefined()
+
+      // A new reply warms it again.
+      await turn($, 't2')
+      await ui.redraw()
+      expect(await ui.find({ type: 'Text', text: '1h left' })).toBeDefined()
+    })
+
+    test('an API key, or FORCE_PROMPT_CACHING_5M, gets five minutes', async ($, on) => {
+      world(on, () => ({ ...usageAt(80_000), rateLimits: [] }), {}, { FORCE_PROMPT_CACHING_5M: '1' })
+      await turn($, 't1')
+      const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+      expect(String((await ui.find({ type: 'Svg' }))?.props.source)).toContain('5m left')
+    })
+
+    test('a resumed conversation counts from its last reply', async ($, on) => {
+      world(on, () => usageAt(80_000))
+      on('classic.SessionStart', () => ({}))
+      await $.classic.SessionStart({ source: 'resume', seconds_since_last_response: 20 * 60 })
+      const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+      expect(await ui.find({ type: 'Text', text: '40m left' })).toBeDefined()
+    })
+
+    test('/token-weather says how long the cache has', async ($, on) => {
+      world(on, () => usageAt(80_000))
+      on('session.surfaces', () => ({ value: [] }))
+      await turn($, 't1')
+      const text = (
+        await $.command.run({
+          command: 'token-weather',
+          args: '',
+          origin: { kind: 'composer' },
+          presentation: { isFullscreen: false, columns: 120 },
+        })
+      ).text
+      expect(text).toContain('◴ cache 1h left')
     })
   })
 })

@@ -5,6 +5,8 @@ import type { RateWindow, Snapshot, Totals } from '../types'
 import {
   HISTORY_LENGTH,
   barCells,
+  cacheTtlMs,
+  cacheView,
   elapsedFraction,
   formatDuration,
   formatPercent,
@@ -33,6 +35,8 @@ const totals = atom({ plugin: 'token-weather', key: 'totals' } as const, ZERO)
 const warned = atom({ plugin: 'token-weather', key: 'warned' } as const, 0)
 const tick = atom({ plugin: 'token-weather', key: 'tick' } as const, 0)
 const minimized = atom({ plugin: 'token-weather', key: 'minimized' } as const, false)
+const cacheAt = atom({ plugin: 'token-weather', key: 'cacheAt' } as const, null)
+const cacheTtl = atom({ plugin: 'token-weather', key: 'cacheTtl' } as const, 0)
 
 const MINIMIZED_KEY = 'minimized'
 
@@ -94,11 +98,33 @@ async function knownLimits($: EngineInterface, fresh: RateWindow[]): Promise<Rat
   })
 }
 
+/** The prompt cache's lifetime, from what Claude Code reads to pick it. */
+async function readCacheTtl($: EngineInterface, limits: RateWindow[]): Promise<number> {
+  try {
+    const settings: Record<string, unknown> = await $.settings.read()
+
+    return cacheTtlMs(
+      {
+        disabled: await $.env.get('DISABLE_PROMPT_CACHING'),
+        force5m: await $.env.get('FORCE_PROMPT_CACHING_5M'),
+        ttl: await $.env.get('CLAUDE_CODE_PROMPT_CACHE_TTL'),
+        setting: settings.promptCacheTtl,
+        enable1h: await $.env.get('ENABLE_PROMPT_CACHING_1H'),
+      },
+      limits,
+    )
+  } catch {
+    return cacheTtlMs({}, limits)
+  }
+}
+
 /** Keeps the latest figures and toasts once as the fill crosses 75% and 90%. */
 async function remember($: EngineInterface, figures: Figures): Promise<void> {
   const next = toSnapshot(figures)
   next.rateLimits = await knownLimits($, next.rateLimits)
   await update($, snapshot, () => next)
+  const ttl = await readCacheTtl($, next.rateLimits)
+  await update($, cacheTtl, () => ttl)
 
   const level = warningLevel(next.percent)
   let crossed = 0
@@ -203,8 +229,10 @@ export const register: Register = on => {
       cacheWrite: sum.cacheWrite + usage.cache_creation_input_tokens,
     }))
 
-    // Only the main thread's turns move the context window.
+    // Only the main thread's turns move the context window and its cache.
     if (e.agentId === undefined) {
+      const repliedAt = await $.clock.now()
+      await update($, cacheAt, () => repliedAt)
       const now = await $.session.usage()
       await remember($, now)
       const tokens = now.context.tokens
@@ -220,6 +248,7 @@ export const register: Register = on => {
   on('session.compact', async ($, e, next) => {
     const result = await next(e)
     if (e.trigger !== 'precompute' && e.agentId === undefined && result.messages !== undefined) {
+      await update($, cacheAt, () => null)
       await remember($, await $.session.usage())
     }
 
@@ -233,6 +262,9 @@ export const register: Register = on => {
     await update($, totals, () => ZERO)
     await update($, warned, () => 0)
     await loadView($)
+    const seconds = e.seconds_since_last_response
+    const repliedAt = typeof seconds === 'number' ? (await $.clock.now()) - seconds * 1000 : null
+    await update($, cacheAt, () => repliedAt)
     await remember($, await $.session.usage())
 
     return next(e)
@@ -254,7 +286,8 @@ export const register: Register = on => {
     }
     const [snap, past, sum] = await Promise.all([read($, snapshot), read($, history), read($, totals)])
     const figures = snap ?? toSnapshot(await $.session.usage())
-    const lines = textReport(figures, past, sum, await $.clock.now())
+    const at = await $.clock.now()
+    const lines = textReport(figures, past, sum, at, cacheView(await read($, cacheAt), await read($, cacheTtl), at))
     const surfaces = await $.session.surfaces()
     const seen = [...asked].map(([surface, times]) => `${surface} (${times}×)`)
     lines.push(
@@ -270,16 +303,21 @@ export const register: Register = on => {
     asked.set(e.surface, (asked.get(e.surface) ?? 0) + 1)
     if (e.props.hasSurvey) return next(e)
 
-    const [snap, past, sum, isMini] = await Promise.all([
+    const [snap, past, sum, isMini, repliedAt, ttl] = await Promise.all([
       read($, snapshot),
       read($, history),
       read($, totals),
       read($, minimized),
+      read($, cacheAt),
+      read($, cacheTtl),
       read($, tick),
     ])
     if (snap === null) return next(e)
 
     const now = await $.clock.now()
+    // Only while the window holds a measured conversation: after a compaction
+    // nothing is cached until the next reply.
+    const cache = snap.tokens === undefined ? undefined : cacheView(repliedAt, ttl, now)
     const level = warningLevel(snap.percent)
     const minimize = () => void setMinimized($, true)
     const expand = () => void setMinimized($, false)
@@ -298,7 +336,15 @@ export const register: Register = on => {
           </Box>
         )
       }
-      const band = desktopBand(snap, past, sum, now, e.props.bodyColumns * 8 - 40, textReport(snap, past, sum, now).join('\n'))
+      const band = desktopBand(
+        snap,
+        past,
+        sum,
+        now,
+        e.props.bodyColumns * 8 - 40,
+        textReport(snap, past, sum, now, cache).join('\n'),
+        cache,
+      )
 
       // `dismiss` has the app draw its own close control at the band's edge.
       return (
@@ -312,7 +358,8 @@ export const register: Register = on => {
     const { Box, Text, Button } = $.ui.resolve(e)
     // Sized to the window: a blank line above, bars that grow with the width,
     // and the right-hand items held at the band's right edge.
-    const size = terminalLayout(e.props.bodyColumns)
+    const cacheLabel = cache === undefined ? '' : `◴ cache ${cache.text}`
+    const size = terminalLayout(e.props.bodyColumns, cacheLabel.length > 0 ? cacheLabel.length + 2 : 0)
 
     if (isMini) {
       const [head, ...rest] = miniText(snap).split(' · ')
@@ -373,6 +420,14 @@ export const register: Register = on => {
               <Text>{formatTokens(tokens)}</Text>
               <Text dimColor> / {formatWindow(snap.window)}</Text>
             </Box>
+            {cache !== undefined && (
+              <Box flexDirection="row">
+                <Text dimColor>◴ cache </Text>
+                <Text bold={cache.tone !== 'ok'} color={cache.tone === 'ok' ? undefined : 'yellow'}>
+                  {cache.text}
+                </Text>
+              </Box>
+            )}
           </Box>
           <Box flexDirection="row" columnGap={2}>
             {past.length > 0 && (

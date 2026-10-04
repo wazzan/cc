@@ -145,7 +145,13 @@ export function textBar(percentUsed: number, elapsed: number | undefined, width:
 }
 
 /** The band as plain lines, for surfaces that draw no band (`/token-weather`). */
-export function textReport(snap: Snapshot, history: number[], totals: Totals, now: number): string[] {
+export function textReport(
+  snap: Snapshot,
+  history: number[],
+  totals: Totals,
+  now: number,
+  cache?: CacheView,
+): string[] {
   const lines: string[] = []
 
   if (snap.tokens === undefined || snap.percent === undefined) {
@@ -178,6 +184,7 @@ export function textReport(snap: Snapshot, history: number[], totals: Totals, no
 
       return `${icon} ${windowLabel(limit.kind)} ${textBar(limit.percentUsed, elapsed, 10)} ${formatPercent(limit.percentUsed)}${resets}`
     })
+  if (cache !== undefined) limits.push(`◴ cache ${cache.text}`)
   if (limits.length > 0) lines.push(limits.join('   '))
 
   const inTokens = totals.input + totals.cacheWrite
@@ -229,14 +236,56 @@ export type TerminalLayout = { width: number; gauge: number; bar: number; isNarr
  * plan bars grow with the window, and the band leaves room at its right edge
  * for the engine's own collapse control.
  */
-export function terminalLayout(columns: number): TerminalLayout {
+export function terminalLayout(columns: number, lineOneExtra = 0): TerminalLayout {
   const width = Math.max(40, columns - 5)
   const clamp = (n: number, low: number, high: number) => Math.max(low, Math.min(high, Math.round(n)))
 
   return {
     width,
-    gauge: clamp((width - 64) / 2, 8, 40),
+    gauge: clamp((width - 64 - lineOneExtra) / 2, 8, 40),
     bar: clamp((width - 80) / 5, 5, 16),
     isNarrow: width < 100,
   }
+}
+
+const TTL_MS: Record<string, number> = { '5m': 5 * 60_000, '1h': 60 * 60_000 }
+
+/** What decides the prompt cache's lifetime: the env variables and the setting Claude Code reads. */
+export type CacheTtlInputs = {
+  disabled?: string
+  force5m?: string
+  ttl?: unknown
+  setting?: unknown
+  enable1h?: string
+}
+
+/**
+ * The main conversation's prompt-cache lifetime in ms, picked in Claude Code's
+ * order; 0 when caching is off. With no choice made, a subscription within its
+ * plan gets the hour, and an API key or usage credits past a plan limit get
+ * five minutes.
+ */
+export function cacheTtlMs(inputs: CacheTtlInputs, limits: RateWindow[]): number {
+  const fiveMinutes = TTL_MS['5m'] ?? 300_000
+  const hour = TTL_MS['1h'] ?? 3_600_000
+  if (inputs.disabled === '1') return 0
+  if (inputs.force5m === '1') return fiveMinutes
+  for (const choice of [inputs.ttl, inputs.setting]) {
+    if (typeof choice === 'string' && TTL_MS[choice] !== undefined) return TTL_MS[choice] ?? fiveMinutes
+  }
+  if (inputs.enable1h === '1') return hour
+  const plan = limits.filter(limit => limit.kind === 'five_hour' || limit.kind === 'seven_day')
+
+  return plan.length > 0 && plan.every(limit => limit.percentUsed < 100) ? hour : fiveMinutes
+}
+
+export type CacheView = { text: string; tone: 'ok' | 'expiring' | 'expired' }
+
+/** "42m left", amber in its last fifth, then "expired"; undefined when nothing is cached. */
+export function cacheView(lastAt: number | null, ttlMs: number, now: number): CacheView | undefined {
+  if (lastAt === null || ttlMs <= 0) return undefined
+  const left = lastAt + ttlMs - now
+  if (left <= 0) return { text: 'expired', tone: 'expired' }
+
+  return { text: `${formatDuration(left)} left`, tone: left <= ttlMs / 5 ? 'expiring' : 'ok' }
 }

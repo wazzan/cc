@@ -32,6 +32,10 @@ declare module 'claude-code' {
       tick: number
       /** The band is shrunk to one line; saved in $.store across sessions. */
       minimized: boolean
+      /** When the main conversation last had a reply, in ms; null when nothing is cached. */
+      cacheAt: number | null
+      /** The prompt cache's lifetime in ms as Claude Code picks it; 0 when caching is off. */
+      cacheTtl: number
     }
   }
 }
