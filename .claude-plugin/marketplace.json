@@ -1,0 +1,13 @@
+{
+  "name": "wazzan-mods",
+  "description": "Claude Code mods by wazzan",
+  "owner": { "name": "wazzan" },
+  "plugins": [
+    {
+      "name": "token-weather",
+      "source": "./token-weather",
+      "description": "A live forecast of the context window, plus plan limits, tokens and cost, in the band above the prompt",
+      "category": "productivity"
+    }
+  ]
+}
