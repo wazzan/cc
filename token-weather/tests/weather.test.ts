@@ -9,6 +9,7 @@ import {
   lastTurnDelta,
   paceOf,
   sparkCells,
+  trendText,
   warningLevel,
   weatherFor,
 } from '../hooks/weather'
@@ -43,6 +44,12 @@ describe('weather', () => {
     expect(cells.map(cell => cell.char).join('')).toBe('▃▃▄▄▅▅▆▆▇▇██')
     expect(sparkCells([0, 199_999], 200_000).map(cell => cell.char).join('')).toBe('▁█')
     expect(sparkCells([190_000], 200_000)[0]?.color).toBe('red')
+  })
+
+  test('the terminal trend runs from the lowest turn shown to the highest', () => {
+    expect(trendText([100, 150, 200])).toBe('▁▄▇')
+    expect(trendText([5_000])).toBe('▁')
+    expect(trendText(Array.from({ length: 20 }, (_, i) => i))).toHaveLength(12)
   })
 
   test('the last turn says how much it added', () => {

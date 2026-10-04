@@ -15,8 +15,8 @@ import {
   paceOf,
   percentOf,
   shownLimits,
-  sparkCells,
   textReport,
+  trendText,
   warningLevel,
   weatherFor,
   windowLabel,
@@ -35,22 +35,9 @@ const minimized = atom({ plugin: 'token-weather', key: 'minimized' } as const, f
 
 const MINIMIZED_KEY = 'minimized'
 
-type Palette = { bg: string; fg: string; accent: string; track?: string }
-
-// Dark-mode pills, after the pastel ones in the reference screenshot.
-const CHIP = {
-  fiveHour: { bg: '#16302a', fg: '#a7dcc6', accent: '#5fbf9a', track: '#33534a' },
-  sevenDay: { bg: '#25213f', fg: '#c3bcff', accent: '#8f86f0', track: '#45406e' },
-  input: { bg: '#3a211d', fg: '#f2ae9f', accent: '#e07a64' },
-  output: { bg: '#1b3322', fg: '#a6dcae', accent: '#6cc47c' },
-  total: { bg: '#1e2647', fg: '#b3c0ff', accent: '#7f93f5' },
-  cost: { bg: '#352d1a', fg: '#ecd08a', accent: '#d4a93f' },
-  storm: { bg: '#3a1d3a', fg: '#f0a6f0', accent: '#d070d0' },
-  compact: { bg: '#45191f', fg: '#ffa3ab', accent: '#ff6b78' },
-} satisfies Record<string, Palette>
-
-const PACE_COLOR = { ok: '#7cc98f', ahead: '#e6b85c', critical: '#ef6f6c' }
-const MARKER_COLOR = '#f4f4f4'
+// The terminal draws with its own named colors and dim style, so the band
+// follows whatever theme the terminal has, light or dark.
+const PACE_COLOR = { ok: 'green', ahead: 'yellow', critical: 'red' }
 
 type Figures = Pick<SessionMeasureInput, 'context' | 'rateLimits' | 'cost'>
 
@@ -337,16 +324,11 @@ export const register: Register = on => {
       )
     }
 
-    const barWidth = e.props.bodyColumns >= 120 ? 10 : 6
+    const isNarrow = e.props.bodyColumns < 110
+    const weather = weatherFor(snap.percent ?? 0)
 
-    const piece = (palette: Palette, text: string, color = palette.fg, bold = false) => (
-      <Text color={color} backgroundColor={palette.bg} bold={bold}>
-        {text}
-      </Text>
-    )
-
-    const bar = (palette: Palette, cells: BarCell[], fillColor: string) => {
-      // Runs of one part share a Text, so a bar is at most four elements.
+    // A bar's runs: the fill in its color, the rest dim, the clock's marker bold.
+    const barText = (cells: BarCell[], fill: string) => {
       const runs: { part: BarCell['part']; text: string }[] = []
       for (const cell of cells) {
         const last = runs.at(-1)
@@ -354,73 +336,49 @@ export const register: Register = on => {
         else runs.push({ part: cell.part, text: cell.char })
       }
 
-      return runs.map(run =>
-        piece(
-          palette,
-          run.text,
-          run.part === 'fill' ? fillColor : run.part === 'marker' ? MARKER_COLOR : (palette.track ?? palette.fg),
-          run.part === 'marker',
-        ),
-      )
-    }
-
-    const rateChip = (limit: RateWindow) => {
-      const palette = limit.kind === 'seven_day' ? CHIP.sevenDay : CHIP.fiveHour
-      const icon = limit.kind === 'seven_day' ? '▦' : '◔'
-      const elapsed = elapsedFraction(limit.kind, limit.resetsAt, now)
-      const pace = paceOf(limit.percentUsed, elapsed)
-      const resetsIn =
-        limit.resetsAt === undefined ? undefined : formatDuration(Date.parse(limit.resetsAt) - now)
-
       return (
-        <Box flexDirection="row" backgroundColor={palette.bg}>
-          {piece(palette, ` ${icon} `, palette.accent)}
-          {piece(palette, `${windowLabel(limit.kind)} `)}
-          {bar(palette, barCells(limit.percentUsed, elapsed, barWidth), PACE_COLOR[pace])}
-          {piece(palette, ` ${formatPercent(limit.percentUsed)} `, pace === 'ok' ? '#ffffff' : PACE_COLOR[pace], true)}
-          {resetsIn !== undefined && piece(palette, '│', palette.track)}
-          {resetsIn !== undefined && piece(palette, ' ↻ ', palette.accent)}
-          {resetsIn !== undefined && piece(palette, `${resetsIn} `)}
+        <Box flexDirection="row">
+          {runs.map(run =>
+            run.part === 'fill' ? (
+              <Text color={fill}>{run.text}</Text>
+            ) : run.part === 'marker' ? (
+              <Text bold>{run.text}</Text>
+            ) : (
+              <Text dimColor>{run.text}</Text>
+            ),
+          )}
         </Box>
       )
     }
 
-    const countChip = (palette: Palette, icon: string, value: string) => (
-      <Box flexDirection="row" backgroundColor={palette.bg}>
-        {piece(palette, ` ${icon} `, palette.accent)}
-        {piece(palette, `${value} `)}
-      </Box>
-    )
-
     // Line one: the forecast.
     const forecast = (tokens: number, percent: number) => {
-      const weather = weatherFor(percent)
-      const spark = sparkCells(past, snap.window)
       const delta = lastTurnDelta(past)
-      const blank = HISTORY_LENGTH - spark.length
+      const blank = HISTORY_LENGTH - Math.min(HISTORY_LENGTH, past.length)
 
       return (
         <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
           <Text color={weather.color} bold>
             {weather.icon} {weather.word}
           </Text>
-          <Text color={weather.color} bold>
-            {percent}%
-          </Text>
-          <Text>
-            {formatTokens(tokens)} / {formatWindow(snap.window)}
-          </Text>
-          {spark.length > 0 && (
+          <Text bold>{percent}%</Text>
+          {barText(barCells(percent, undefined, isNarrow ? 10 : 16), weather.color)}
+          <Box flexDirection="row">
+            <Text>{formatTokens(tokens)}</Text>
+            <Text dimColor> / {formatWindow(snap.window)}</Text>
+          </Box>
+          {past.length > 0 && (
             <Box flexDirection="row">
               {blank > 0 && <Text dimColor>{'·'.repeat(blank)}</Text>}
-              {spark.map(cell => (
-                <Text color={cell.color}>{cell.char}</Text>
-              ))}
+              <Text color={weather.color} dimColor>
+                {trendText(past)}
+              </Text>
             </Box>
           )}
           {delta !== undefined && (
             <Text color={delta.delta < 0 ? 'green' : undefined} dimColor={delta.delta >= 0}>
-              {delta.text} last turn
+              {delta.delta < 0 ? '-' : '+'}
+              {formatTokens(Math.abs(delta.delta))} last turn
             </Text>
           )}
         </Box>
@@ -429,39 +387,67 @@ export const register: Register = on => {
 
     const calm = (
       <Box flexDirection="row" columnGap={2}>
-        <Text color="yellow" bold>
-          ☀ Clear
+        <Text color={weather.color} bold>
+          {weather.icon} {weather.word}
         </Text>
         <Text dimColor>forecast after the next reply · {formatWindow(snap.window)} window</Text>
       </Box>
     )
 
-    // Line two: plan windows, tokens, cost, and the compaction warning.
+    // Line two: plan windows, tokens and cost, between dim separators.
+    const rate = (limit: RateWindow) => {
+      const elapsed = elapsedFraction(limit.kind, limit.resetsAt, now)
+      const pace = paceOf(limit.percentUsed, elapsed)
+      const icon = limit.kind === 'seven_day' ? '▦' : '◔'
+
+      return (
+        <Box flexDirection="row">
+          <Text dimColor>
+            {icon} {windowLabel(limit.kind)}{' '}
+          </Text>
+          {barText(barCells(limit.percentUsed, elapsed, isNarrow ? 6 : 8), PACE_COLOR[pace])}
+          <Text bold color={pace === 'ok' ? undefined : PACE_COLOR[pace]}>
+            {' '}
+            {formatPercent(limit.percentUsed)}
+          </Text>
+          {limit.resetsAt !== undefined && (
+            <Text dimColor> · {formatDuration(Date.parse(limit.resetsAt) - now)}</Text>
+          )}
+        </Box>
+      )
+    }
     const inTokens = sum.input + sum.cacheWrite
-    const allTokens = inTokens + sum.cacheRead + sum.output
-    const limits = shownLimits(snap)
-    const warning = level === 0 ? undefined : level === 90 ? CHIP.compact : CHIP.storm
+    const segments = [
+      ...shownLimits(snap).map(rate),
+      <Box flexDirection="row" columnGap={1}>
+        <Text color="green">↑{formatTokens(inTokens)}</Text>
+        <Text color="red">↓{formatTokens(sum.output)}</Text>
+        <Text dimColor>≋ {formatTokens(inTokens + sum.cacheRead + sum.output)}</Text>
+      </Box>,
+    ]
+    if (snap.costUsd !== undefined && snap.costUsd > 0) segments.push(<Text>${snap.costUsd.toFixed(2)}</Text>)
 
     return (
       <Box flexDirection="column">
         {snap.tokens === undefined || snap.percent === undefined ? calm : forecast(snap.tokens, snap.percent)}
-        <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
-          {limits.map(rateChip)}
-          {countChip(CHIP.input, '↑', formatTokens(inTokens))}
-          {countChip(CHIP.output, '↓', formatTokens(sum.output))}
-          {countChip(CHIP.total, '≋', formatTokens(allTokens))}
-          {snap.costUsd !== undefined && snap.costUsd > 0 && countChip(CHIP.cost, '$', snap.costUsd.toFixed(2))}
-          {warning !== undefined && (
-            <Box flexDirection="row" backgroundColor={warning.bg}>
-              {piece(warning, level === 90 ? ' ⚠ ' : ' ☇ ', warning.accent, true)}
-              {piece(warning, level === 90 ? 'compact now ' : 'consider /compact ', warning.fg, level === 90)}
-            </Box>
-          )}
-          {warning !== undefined && !e.props.isWorking && (
-            <Button key="compact" label="Compact" hotkey="c" dimColor={level < 90} onPress={() => void compactNow($)} />
-          )}
+        <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
+          {segments.flatMap((segment, i) => (i === 0 ? [segment] : [<Text dimColor>│</Text>, segment]))}
+          <Text> </Text>
           <Button key="minimize" label="minimize" hotkey="m" plain dimColor onPress={minimize} />
         </Box>
+        {level > 0 && (
+          <Box flexDirection="row" columnGap={2}>
+            <Box flexDirection="row">
+              <Text color={level === 90 ? 'red' : 'yellow'} bold>
+                {level === 90 ? '⚠ Compact now' : '☇ Consider compacting'}
+              </Text>
+              <Text dimColor> · run /compact</Text>
+            </Box>
+            {!e.props.isWorking && (
+              <Button key="compact" label="Compact" hotkey="c" dimColor={level < 90} onPress={() => void compactNow($)} />
+            )}
+          </Box>
+        )}
       </Box>
     )
   })

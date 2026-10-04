@@ -209,3 +209,15 @@ export function miniText(snap: Snapshot): string {
 
   return [head, ...limits].join(' · ')
 }
+
+/** The last turns as a trend, ▁ to ▇ from the lowest turn shown to the highest. */
+export function trendText(history: number[]): string {
+  const points = history.slice(-HISTORY_LENGTH)
+  const low = Math.min(...points)
+  const span = Math.max(...points) - low
+  const levels = '▁▂▃▄▅▆▇'
+
+  return points
+    .map(tokens => levels[span > 0 ? Math.min(levels.length - 1, Math.floor(((tokens - low) / span) * levels.length)) : 0] ?? '▁')
+    .join('')
+}

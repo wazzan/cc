@@ -90,8 +90,12 @@ describe('token-weather band', () => {
       const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
       expect(await ui.find({ type: 'Text', text: '☂ Showers' })).toBeDefined()
       expect(await ui.find({ type: 'Text', text: '67%' })).toBeDefined()
-      expect(await ui.find({ type: 'Text', text: '134.4k / 200k' })).toBeDefined()
-      expect(await ui.find({ type: 'Text', text: '▲ +98.3k last turn' })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: '134.4k' })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: '/ 200k' })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: '+98.3k last turn' })).toBeDefined()
+      // Plan windows, tokens and cost sit between dim separators, with no backgrounds.
+      expect(await ui.findAll({ type: 'Text', text: '│' })).toHaveLength(3)
+      expect(await ui.find({ type: 'Text', text: '↑15.6k' })).toBeDefined()
       expect(await ui.find({ type: 'Text', text: '··········' })).toBeDefined()
       expect(await ui.find({ type: 'Text', text: '5h' })).toBeDefined()
       expect(await ui.find({ type: 'Text', text: '20%' })).toBeDefined()
@@ -147,7 +151,8 @@ describe('token-weather band', () => {
     {
       const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
       expect(await ui.find({ type: 'Text', text: '↯ Compact soon' })).toBeDefined()
-      expect(await ui.find({ type: 'Text', text: 'compact now' })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: '⚠ Compact now' })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: 'run /compact' })).toBeDefined()
       expect(await ui.find({ type: 'Button', key: 'compact' })).toBeDefined()
       await ui.unmount()
     }
@@ -260,7 +265,7 @@ describe('token-weather band', () => {
 
     const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
     // The 5h window reset since it was saved, so it starts again at 0%.
-    expect(await ui.find({ type: 'Text', text: ' 0% ' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: ' 0%' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: '58%' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: '1d 7h' })).toBeDefined()
     // The chart starts from the fill the conversation already has, with no delta yet.

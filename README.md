@@ -1,15 +1,17 @@
 # token-weather
 
-A Claude Code mod that shows a live forecast of your context window in the band above the prompt. A second row shows your plan limits, token counts and cost, in a dark style. Both rows update after every turn. The desktop app draws it in its own dark palette, as a forecast line over gray chips like its diff chip; the terminal draws it in text.
+A Claude Code mod that shows a live forecast of your context window in the band above the prompt. A second row shows your plan limits, token counts and cost, in a dark style. Both rows update after every turn. The desktop app draws it in its own dark palette, as a forecast line over gray chips like its diff chip. The terminal draws it as plain text in the terminal's own colors, so it suits light and dark themes alike.
 
-![token-weather preview](docs/token-weather-preview.png)
+![token-weather in the desktop app](docs/token-weather-preview.png)
+
+![token-weather in a terminal](docs/token-weather-terminal.png)
 
 ## What it shows
 
 **Row 1: the forecast**
 
 ```
-☂ Showers  67%  134.4k / 200k  ▁▂▂▃▃▄▄▅▅▆▆▇  ▲ +98.3k last turn
+☂ Showers  67%  ━━━━━━━━━━━━━━━━  134.4k / 200k  ▁▂▂▃▃▄▄▅▅▆▆▇  +98.3k last turn
 ```
 
 | Context used | Weather          | Color   |
@@ -20,21 +22,21 @@ A Claude Code mod that shows a live forecast of your context window in the band 
 | 75–89%       | ☇ Storm          | magenta |
 | 90% and up   | ↯ Compact soon   | red     |
 
-- **Percentage and tokens**: the input tokens of the last response, out of the model's window.
-- **Chart**: the context fill at the end of each of the last 12 turns. Each bar is scaled to the whole window and colored by its weather. `·` marks turns that haven't happened yet.
-- **Last turn**: how much the last turn added (`▲`). After a compaction this shows how much was freed instead (`▼`, in green).
+- **Percentage, gauge and tokens**: the input tokens of the last response, out of the model's window.
+- **Chart**: the context fill at the end of each of the last 12 turns, from the lowest turn shown to the highest, so the trend reads. `·` marks turns that haven't happened yet.
+- **Last turn**: how much the last turn added. After a compaction it shows how much was freed instead, in green.
 
-**Row 2: the usage chips (dark mode)**
+**Row 2: plan windows, tokens and cost** (chips in the desktop app, separated by `│` in the terminal)
 
-| Chip | Meaning |
+| Shown | Meaning |
 | --- | --- |
-| `◔ 5h ━━━┃━━ 20% │ ↻ 2h 40m` | 5-hour plan window: the share used, a `┃` marker showing how far through the window you are, and the time until it resets |
-| `▦ 7d ━━━━━━┃━ 58% │ ↻ 1d 7h` | The same for the weekly window |
-| `↑ 15.6k` | Tokens in: fresh input (uncached plus cache-written), summed over the session including subagents |
-| `↓ 3.0k` | Tokens out: output tokens, summed the same way |
-| `≋ 954.2k` | Total tokens processed: in + out + cache reads |
-| `$ 4.32` | Session cost, as `/cost` reports it |
-| `☇ consider /compact` / `⚠ compact now` | The compaction warning, shown at 75% and 90% context (in the terminal, with a **[ Compact ]** button) |
+| `◔ 5h ━━┃━━━━━ 20% · 2h 40m` | 5-hour plan window: the share used, a `┃` marker showing how far through the window you are, and the time until it resets |
+| `▦ 7d ━━━━━━┃━ 58% · 1d 7h` | The same for the weekly window |
+| `↑15.6k` | Tokens in: fresh input (uncached plus cache-written), summed over the session including subagents |
+| `↓3.0k` | Tokens out: output tokens, summed the same way |
+| `≋ 958.6k` | Total tokens processed: in + out + cache reads |
+| `$4.32` | Session cost, as `/cost` reports it (hidden while it's zero) |
+| `☇ Consider compacting` / `⚠ Compact now` | The compaction warning, shown at 75% and 90% context, with `run /compact` (in the terminal, also a **[ Compact ]** button) |
 
 The bar fill is green when you're on pace. It turns amber when your usage is more than 10 points ahead of the time elapsed in the window, and red at 90%.
 
@@ -119,7 +121,7 @@ Load a working copy for one session with `claude --plugin-dir ./token-weather`; 
 
 ```sh
 claude plugin validate token-weather   # what the module hooks and calls
-claude plugin test token-weather       # 20 tests: formatting, the band on terminal + desktop, /token-weather, saved plan windows, minimizing
+claude plugin test token-weather       # 21 tests: formatting, the band on terminal + desktop, /token-weather, saved plan windows, minimizing
 ```
 
 Layout:
