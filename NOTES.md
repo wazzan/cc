@@ -28,7 +28,7 @@ Then restart the desktop app, or `/reload-plugins` in an open session. Needs Cla
 
 ## Open items
 
-- **Verify the inline summary shows in the desktop app for Remote Control sessions.** First live test: it was switched on in the development session on 2026-10-05, and no summary notice had appeared in that session's transcript yet, so it is unconfirmed. Check the debug log for "token-weather" errors. If it doesn't appear in remote viewers, try returning `{ text }` from the `turn.complete` hook instead (shown "beneath the answer"), or both.
+- **Verify the inline summary shows in the desktop app for Remote Control sessions.** It is written: this development session's transcript has one `system`/`informational` row (level `info`) after each reply since 2026-10-05. The terminal hides info-level notices unless verbose (its system-message renderer returns null for them), so on the VM it only shows in the Ctrl+O transcript view. Still to check: whether the desktop app shows them, both for a Remote Control session and for a cloud session. If it doesn't, try returning `{ text }` from the `turn.complete` hook ("a text other than a main-loop answer's is shown beneath it"), or both.
 - The cache lifetime is inferred, because the mods API doesn't expose it outside model-switch hooks. On usage credits the real TTL drops to 5 minutes; the mod only switches when a plan window reads 100%. Check this against `/usage` → "Prompt cache (main)" if it looks wrong.
 - Not checked yet: terminals under 80 columns, light terminal themes in practice, the desktop band in a light app theme.
 - The desktop band's text widths are estimates (SF Pro is proportional). Watch for overlaps on real Macs, especially "Consider compacting".
@@ -48,6 +48,7 @@ Then restart the desktop app, or `/reload-plugins` in an open session. Needs Cla
 
 - Mods draw only in the terminal and in the desktop app's **local** Code tab sessions. Cloud sessions don't load installed plugins. In Remote Control, drawing appears only in the terminal on the host (docs: Mods overview → "Where mods run").
 - `$.state` resets on `/clear`, `/resume` and `/branch`, and `session.start` doesn't fire again: re-seed in `classic.SessionStart` with `source: ['clear', 'resume', 'fork']`. Resume carries `seconds_since_last_response`.
+- The terminal hides `system` notices of level `info` (what `$.session.append` makes) unless verbose mode is on; Ctrl+O shows them.
 - A mod's own `$.session.compact()` skips its own `session.compact` hook.
 - `session.append` hooks must call `next`; a mod's `$.session.append` can't be exercised in `claude plugin test` (the kit keeps no conversation), so that path is guarded with try/catch and logged with `$.ui.log(..., { to: 'debug' })`.
 - Tests need stand-ins for the engine: `mock.clock`, `mock.store`, `mock.env`, plus `on('settings.read')`, `on('session.usage')`, `on('ui.toast')`, `on('ui.render', AbovePrompt)` returning `{ value }` where it's an op.
@@ -63,6 +64,10 @@ Then restart the desktop app, or `/reload-plugins` in an open session. Needs Cla
 - Previews: the desktop SVG rendered with `bun` into an HTML copy of the Code tab, and terminal trees dumped from `ui.drawn()` in a throwaway test and drawn as HTML, both screenshotted with Playwright's Chromium. Inter and JetBrains Mono (from npm `@fontsource`) stand in for SF Pro and SF Mono.
 
 ## Ideas for later
+
+- `/token-weather` without bars or chart where no band is drawn: the app shows command output in a proportional font, which garbles them. Mock it up first.
+- Token totals that cover the whole session, like the cost does; now they start over when the mod reloads.
+- Drop the doubled "token-weather:" in command replies (Claude Code already adds the mod's name).
 
 - Turn the inline summary on automatically when a remote viewer attaches (if `session.attach` reports it).
 - The plan "runs out at this pace" projection in the band itself, not only in the summary.
