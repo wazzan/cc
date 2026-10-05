@@ -67,7 +67,9 @@ Cache    97% of the last turn came from cache · expires in 42m
 Plan     5h 20%, resets in 2h 40m · 7d 58%, resets in 1d 7h · both fine at this pace
 ```
 
-When something needs attention, the lines say so: `consider /compact` or `compact now` on the context line, `then your next message re-reads the whole conversation` as the cache nears expiry, and `at this pace it runs out in ~58m` for a plan window you're using faster than it resets. The summary is a notice row: Claude never reads it, so it costs no context.
+When something needs attention, the lines say so: `consider /compact` or `compact now` on the context line, `then your next message re-reads the whole conversation` as the cache nears expiry, and `at this pace it runs out in ~58m` for a plan window you're using faster than it resets.
+
+The summary goes to the mod log, a row labeled `token-weather` that appears just after the reply finishes. Claude never reads it, so it costs no context. The terminal shows it too, as dim rows under the reply, so leave it off if you only use the terminal.
 
 ## Install
 
@@ -135,7 +137,7 @@ Load a working copy for one session with `claude --plugin-dir ./token-weather`; 
 
 ```sh
 claude plugin validate token-weather   # what the module hooks and calls
-claude plugin test token-weather       # 34 tests: formatting, the band on terminal + desktop, /token-weather, saved plan windows, minimizing
+claude plugin test token-weather       # 35 tests: formatting, the band on terminal + desktop, /token-weather, saved plan windows, minimizing
 ```
 
 Layout:

@@ -2,7 +2,7 @@
 
 Running notes for this project: where things stand, what we decided and why, what's still open, and ideas for later. Update this file with every change, so work can continue without the chat history.
 
-## Status (2026-10-05, v0.9.0)
+## Status (2026-10-05, v0.9.1)
 
 Shipped, on `main` of github.com/wazzan/cc (public; the repo is also the plugin marketplace `wazzan-mods`):
 
@@ -12,7 +12,7 @@ Shipped, on `main` of github.com/wazzan/cc (public; the repo is also the plugin 
 - **Minimize** to one line (desktop ×, terminal `m`/`e`, `/token-weather mini|full`), remembered across sessions, auto-expands when context crosses 75% (issue #1).
 - **Cache countdown**: `◴ cache 42m left`, amber in its last fifth, then `expired`.
 - **`/token-weather`**: prints everything as text on any surface; says whether the band was drawn and whether the inline summary is on.
-- **Inline summary** (opt-in, `/token-weather inline on|off`): three labeled lines after each reply, as a notice row Claude never reads. Meant for apps that draw no band (Remote Control viewers).
+- **Inline summary** (opt-in, `/token-weather inline on|off`): three labeled lines after each reply, through the mod log, which Claude never reads. Meant for apps that draw no band (Remote Control viewers).
 
 ### Install and update (any machine)
 
@@ -28,7 +28,7 @@ Then restart the desktop app, or `/reload-plugins` in an open session. Needs Cla
 
 ## Open items
 
-- **Verify the inline summary shows in the desktop app for Remote Control sessions.** It is written: this development session's transcript has one `system`/`informational` row (level `info`) after each reply since 2026-10-05. The terminal hides info-level notices unless verbose (its system-message renderer returns null for them), so on the VM it only shows in the Ctrl+O transcript view. Still to check: whether the desktop app shows them, both for a Remote Control session and for a cloud session. If it doesn't, try returning `{ text }` from the `turn.complete` hook ("a text other than a main-loop answer's is shown beneath it"), or both.
+- **Verify the summary shows in the desktop app for a Remote Control session (0.9.1).** Since 0.9.1 it goes to the mod log (`$.ui.log`), one call per line, 1.5 s after the reply. Tested in a cloud session viewed in the desktop app: rows logged after the turn arrive live as `ui_log` (not stored in the transcript), shown open under the reply with a `token-weather` label, and consecutive rows merge into one paragraph. Under Remote Control the host is the terminal, which stores each log line as a dim notice row; still to check how the app shows those (during-turn logs came out folded under "Claude Code notice").
 - The cache lifetime is inferred, because the mods API doesn't expose it outside model-switch hooks. On usage credits the real TTL drops to 5 minutes; the mod only switches when a plan window reads 100%. Check this against `/usage` → "Prompt cache (main)" if it looks wrong.
 - Not checked yet: terminals under 80 columns, light terminal themes in practice, the desktop band in a light app theme.
 - The desktop band's text widths are estimates (SF Pro is proportional). Watch for overlaps on real Macs, especially "Consider compacting".
@@ -48,7 +48,11 @@ Then restart the desktop app, or `/reload-plugins` in an open session. Needs Cla
 
 - Mods draw only in the terminal and in the desktop app's **local** Code tab sessions. Cloud sessions don't load installed plugins. In Remote Control, drawing appears only in the terminal on the host (docs: Mods overview → "Where mods run").
 - `$.state` resets on `/clear`, `/resume` and `/branch`, and `session.start` doesn't fire again: re-seed in `classic.SessionStart` with `source: ['clear', 'resume', 'fork']`. Resume carries `seconds_since_last_response`.
-- The terminal hides `system` notices of level `info` (what `$.session.append` makes) unless verbose mode is on; Ctrl+O shows them.
+- Where a mod's text shows (tested 2026-10-05):
+  - `$.session.append` system notice: stored as level `info`. The terminal hides it unless verbose (Ctrl+O shows it); the desktop app doesn't show it at all.
+  - `{ text }` returned from `turn.complete`: nothing stored, nothing shown in the desktop app.
+  - `$.ui.log` during the turn: stored as a level `notice` row, text prefixed with the mod's name; the desktop app folds it under "Claude Code notice". Line breaks become `\ufffd`: one line per call.
+  - `$.ui.log` after the turn, in a desktop or cloud (SDK) session: sent live as `ui_log`, not stored; the desktop app shows it open with the mod's name as a label, merging consecutive rows into one paragraph.
 - A mod's own `$.session.compact()` skips its own `session.compact` hook.
 - `session.append` hooks must call `next`; a mod's `$.session.append` can't be exercised in `claude plugin test` (the kit keeps no conversation), so that path is guarded with try/catch and logged with `$.ui.log(..., { to: 'debug' })`.
 - Tests need stand-ins for the engine: `mock.clock`, `mock.store`, `mock.env`, plus `on('settings.read')`, `on('session.usage')`, `on('ui.toast')`, `on('ui.render', AbovePrompt)` returning `{ value }` where it's an op.
@@ -58,7 +62,7 @@ Then restart the desktop app, or `/reload-plugins` in an open session. Needs Cla
 ## How to work on it
 
 - Code: `token-weather/hooks/register.tsx` (hooks and terminal drawing), `weather.ts` (pure helpers), `desktop.ts` (SVG band), `types/index.d.ts` ($.state contract), `tests/`.
-- Check: `claude plugin validate token-weather` and `claude plugin test token-weather` (34 tests). Type-check with `tsc -p` on a tsconfig that includes the engine's types (laid in `.claude-plugin/types/` once the mod loads).
+- Check: `claude plugin validate token-weather` and `claude plugin test token-weather` (35 tests). Type-check with `tsc -p` on a tsconfig that includes the engine's types (laid in `.claude-plugin/types/` once the mod loads).
 - Release: bump `version` in `token-weather/.claude-plugin/plugin.json`, update README and this file, push to `main`.
 - In a Claude Code cloud session the live copy is hot-reloaded from `~/.claude/dev-mods/<session>/token-weather`. Edit there, then copy `hooks/`, `tests/`, `types/` and `plugin.json` into the repo before committing.
 - Previews: the desktop SVG rendered with `bun` into an HTML copy of the Code tab, and terminal trees dumped from `ui.drawn()` in a throwaway test and drawn as HTML, both screenshotted with Playwright's Chromium. Inter and JetBrains Mono (from npm `@fontsource`) stand in for SF Pro and SF Mono.
@@ -67,7 +71,6 @@ Then restart the desktop app, or `/reload-plugins` in an open session. Needs Cla
 
 - `/token-weather` without bars or chart where no band is drawn: the app shows command output in a proportional font, which garbles them. Mock it up first.
 - Token totals that cover the whole session, like the cost does; now they start over when the mod reloads.
-- Drop the doubled "token-weather:" in command replies (Claude Code already adds the mod's name).
 
 - Turn the inline summary on automatically when a remote viewer attaches (if `session.attach` reports it).
 - The plan "runs out at this pace" projection in the band itself, not only in the summary.
@@ -77,6 +80,7 @@ Then restart the desktop app, or `/reload-plugins` in an open session. Needs Cla
 
 ## Changelog
 
+- **0.9.1**: the summary goes through the mod log after the reply (the desktop app didn't show the notice row); command replies lose the doubled "token-weather:".
 - **0.9.0**: opt-in inline summary under each reply; `/token-weather inline on|off`.
 - **0.8.0**: prompt cache countdown.
 - **0.7.0**: terminal band sized to the window, blank line above it.

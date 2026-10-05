@@ -358,9 +358,9 @@ describe('token-weather band', () => {
       await start($, on)
       const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
 
-      expect((await run($, 'mini')).text).toContain('minimized')
+      expect((await run($, 'mini')).text).toContain('Minimized to one line')
       expect(await ui.find({ type: 'Button', key: 'expand' })).toBeDefined()
-      expect((await run($, 'full')).text).toContain('expanded')
+      expect((await run($, 'full')).text).toBe('Expanded.')
       expect(await ui.find({ type: 'Button', key: 'minimize' })).toBeDefined()
     })
   })
@@ -427,25 +427,29 @@ describe('token-weather band', () => {
         presentation: { isFullscreen: false, columns: 120 },
       })
     const start = async ($: Engine, on: On) => {
+      const logged: string[] = []
       on('session.start', ($, e) => ({ cwd: e.cwd }))
       on('command.register', ($, e) => ({ value: { command: e.name } }))
       on('session.surfaces', () => ({ value: [] }))
-      on('ui.log', () => ({ value: undefined }))
+      on('ui.log', ($, e) => {
+        if (e.to === 'transcript') logged.push(e.text)
+
+        return { value: undefined }
+      })
       await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+
+      return logged
     }
 
-    // The kit keeps no conversation, so the row itself is checked in a live
-    // session; here, the switch, the saved choice, and that a turn with the
-    // summary on still updates the band.
     test('/token-weather inline on and off switch it, and the report says so', async ($, on) => {
       world(on, () => usageAt(80_000))
       await start($, on)
       expect((await run($, '')).text).not.toContain('Summary under each reply')
 
-      expect((await run($, 'inline on')).text).toContain('a summary now follows each reply')
+      expect((await run($, 'inline on')).text).toContain('A summary now follows each reply')
       expect((await run($, '')).text).toContain('Summary under each reply: on')
 
-      expect((await run($, 'inline off')).text).toContain('no more summaries')
+      expect((await run($, 'inline off')).text).toContain('No more summaries')
       expect((await run($, '')).text).not.toContain('Summary under each reply')
     })
 
@@ -455,15 +459,29 @@ describe('token-weather band', () => {
       expect((await run($, '')).text).toContain('Summary under each reply: on')
     })
 
-    test('a turn with the summary on still moves the forecast', async ($, on) => {
+    test('the summary follows the reply as three log rows, once the turn is over', async ($, on) => {
       let usage = usageAt(60_000)
       world(on, () => usage, { inline: true })
-      await start($, on)
+      const logged = await start($, on)
       await turn($, 't1')
       usage = usageAt(80_000)
       await turn($, 't2')
+      await clock.advance(1_500)
+      expect(logged).toHaveLength(6)
+      expect(logged.slice(3).map(line => line.split(/\s+/)[0])).toEqual(['Context', 'Cache', 'Plan'])
+      expect(logged[3]).toContain('☁ Cloudy 40% · +10% last turn')
+
+      // The band moves on as before.
       const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
       expect(await ui.find({ type: 'Text', text: '+20.0k last turn' })).toBeDefined()
+    })
+
+    test('with the summary off, nothing is logged', async ($, on) => {
+      world(on, () => usageAt(60_000))
+      const logged = await start($, on)
+      await turn($, 't1')
+      await clock.advance(1_500)
+      expect(logged).toEqual([])
     })
   })
 })

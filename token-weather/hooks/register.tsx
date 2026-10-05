@@ -42,6 +42,8 @@ const lastHit = atom({ plugin: 'token-weather', key: 'lastHit' } as const, null)
 const inline = atom({ plugin: 'token-weather', key: 'inline' } as const, false)
 
 const INLINE_KEY = 'inline'
+// How long after a reply its summary is written: past the end of the turn.
+const SUMMARY_DELAY_MS = 1_500
 
 const MINIMIZED_KEY = 'minimized'
 
@@ -256,19 +258,20 @@ export const register: Register = on => {
         await update($, history, past => [...past, tokens].slice(-HISTORY_LENGTH))
       }
 
-      // The summary under the reply: a notice row, which Claude never reads,
-      // so it reaches apps that draw no band without spending context.
+      // The summary under the reply, for apps that draw no band (a Remote
+      // Control viewer): the mod log, which Claude never reads. It takes one
+      // line per call, and is written once the turn is over, which the
+      // desktop app shows open under the reply instead of folded in a notice.
       if (await read($, inline)) {
         const [snap, past, hit, ttl] = await Promise.all([read($, snapshot), read($, history), read($, lastHit), read($, cacheTtl)])
         if (snap !== null) {
           const text = inlineSummary(snap, past, hit, cacheView(repliedAt, ttl, repliedAt), repliedAt)
-          try {
-            await $.session.append({ message: { type: 'system', content: [{ type: 'text', text }] } })
-          } catch (error) {
-            $.ui.log(`token-weather: the summary was not added: ${error instanceof Error ? error.message : String(error)}`, {
-              to: 'debug',
+          void $.clock
+            .sleep(SUMMARY_DELAY_MS)
+            .then(() => {
+              for (const line of text.split('\n')) $.ui.log(line)
             })
-          }
+            .catch(() => undefined)
         }
       }
     }
@@ -312,19 +315,19 @@ export const register: Register = on => {
       return {
         text:
           arg === 'inline on'
-            ? 'token-weather: a summary now follows each reply (context, cache and plan). /token-weather inline off stops it.'
-            : 'token-weather: no more summaries under replies.',
+            ? 'A summary now follows each reply (context, cache and plan). /token-weather inline off stops it.'
+            : 'No more summaries under replies.',
       }
     }
     if (['mini', 'min', 'minimize', 'hide'].includes(arg)) {
       await setMinimized($, true)
 
-      return { text: 'token-weather: minimized to one line. It expands on its own at 75% context; /token-weather full expands it now.' }
+      return { text: 'Minimized to one line. It expands on its own at 75% context; /token-weather full expands it now.' }
     }
     if (['full', 'show', 'expand', 'max'].includes(arg)) {
       await setMinimized($, false)
 
-      return { text: 'token-weather: expanded.' }
+      return { text: 'Expanded.' }
     }
     const [snap, past, sum] = await Promise.all([read($, snapshot), read($, history), read($, totals)])
     const figures = snap ?? toSnapshot(await $.session.usage())
