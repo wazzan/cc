@@ -417,4 +417,53 @@ describe('token-weather band', () => {
       expect(text).toContain('◴ cache 1h left')
     })
   })
+
+  describe('summary under each reply', () => {
+    const run = ($: Engine, args: string) =>
+      $.command.run({
+        command: 'token-weather',
+        args,
+        origin: { kind: 'composer' },
+        presentation: { isFullscreen: false, columns: 120 },
+      })
+    const start = async ($: Engine, on: On) => {
+      on('session.start', ($, e) => ({ cwd: e.cwd }))
+      on('command.register', ($, e) => ({ value: { command: e.name } }))
+      on('session.surfaces', () => ({ value: [] }))
+      on('ui.log', () => ({ value: undefined }))
+      await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+    }
+
+    // The kit keeps no conversation, so the row itself is checked in a live
+    // session; here, the switch, the saved choice, and that a turn with the
+    // summary on still updates the band.
+    test('/token-weather inline on and off switch it, and the report says so', async ($, on) => {
+      world(on, () => usageAt(80_000))
+      await start($, on)
+      expect((await run($, '')).text).not.toContain('Summary under each reply')
+
+      expect((await run($, 'inline on')).text).toContain('a summary now follows each reply')
+      expect((await run($, '')).text).toContain('Summary under each reply: on')
+
+      expect((await run($, 'inline off')).text).toContain('no more summaries')
+      expect((await run($, '')).text).not.toContain('Summary under each reply')
+    })
+
+    test('a saved choice carries into a new session', async ($, on) => {
+      world(on, () => usageAt(80_000), { inline: true })
+      await start($, on)
+      expect((await run($, '')).text).toContain('Summary under each reply: on')
+    })
+
+    test('a turn with the summary on still moves the forecast', async ($, on) => {
+      let usage = usageAt(60_000)
+      world(on, () => usage, { inline: true })
+      await start($, on)
+      await turn($, 't1')
+      usage = usageAt(80_000)
+      await turn($, 't2')
+      const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+      expect(await ui.find({ type: 'Text', text: '+20.0k last turn' })).toBeDefined()
+    })
+  })
 })

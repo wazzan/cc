@@ -57,6 +57,18 @@ Your choice is remembered across sessions. A minimized band expands on its own w
 
 ![Minimize, full and auto-expanded](docs/token-weather-minimize.png)
 
+## Summary under each reply
+
+Apps that draw no mod bands, such as the desktop app or claude.ai driving a [Remote Control](https://code.claude.com/docs/en/remote-control) session, still show the conversation. Turn on a short summary after each reply with `/token-weather inline on` (remembered across sessions; `/token-weather inline off` stops it):
+
+```
+Context  ☁ Cloudy 39% · +1.2% last turn · ~43 turns until 90%
+Cache    97% of the last turn came from cache · expires in 42m
+Plan     5h 20%, resets in 2h 40m · 7d 58%, resets in 1d 7h · both fine at this pace
+```
+
+When something needs attention, the lines say so: `consider /compact` or `compact now` on the context line, `then your next message re-reads the whole conversation` as the cache nears expiry, and `at this pace it runs out in ~58m` for a plan window you're using faster than it resets. The summary is a notice row: Claude never reads it, so it costs no context.
+
 ## Install
 
 Mods need Claude Code **v2.1.287 or later** (check with `claude --version`). The band draws in the terminal and in **local** sessions in the Claude desktop app's Code tab.
@@ -96,6 +108,7 @@ You can also turn on auto-update in `/plugin` → **Marketplaces** → `wazzan-m
 | `claude` in a terminal | Yes | Yes |
 | Desktop app, Code tab, local session | Yes | Yes |
 | VS Code extension chat panel, `claude -p` | No | Yes |
+| Remote Control, viewed from the desktop app, claude.ai or the phone | Only in the terminal on the machine running it | Yes; also `/token-weather inline on` |
 | Cloud sessions (claude.ai/code, or a cloud session opened in the desktop app) | No, and installed plugins don't load there | No |
 
 ### Turn it off
@@ -122,12 +135,12 @@ Load a working copy for one session with `claude --plugin-dir ./token-weather`; 
 
 ```sh
 claude plugin validate token-weather   # what the module hooks and calls
-claude plugin test token-weather       # 28 tests: formatting, the band on terminal + desktop, /token-weather, saved plan windows, minimizing
+claude plugin test token-weather       # 34 tests: formatting, the band on terminal + desktop, /token-weather, saved plan windows, minimizing
 ```
 
 Layout:
 
-- `token-weather/hooks/register.tsx`: hooks `session.start`, `session.measure`, `turn.complete`, `session.compact`, `classic.SessionStart` (to restart the forecast after `/clear`, `/resume` and `/branch`), the `/token-weather` command (with `mini` and `full`) and the `AbovePrompt` render
+- `token-weather/hooks/register.tsx`: hooks `session.start`, `session.measure`, `turn.complete`, `session.compact`, `classic.SessionStart` (to restart the forecast after `/clear`, `/resume` and `/branch`), the `/token-weather` command (with `mini`, `full` and `inline on|off`) and the `AbovePrompt` render
 - `token-weather/hooks/weather.ts`: pure helpers (weather bands, sparkline, bars, cache lifetime, formatting)
 - `token-weather/hooks/desktop.ts`: the desktop app's band, one transparent SVG in the app's colors
 - `token-weather/types/index.d.ts`: the `$.state` contract

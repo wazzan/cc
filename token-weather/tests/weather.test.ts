@@ -8,11 +8,14 @@ import {
   formatDuration,
   formatTokens,
   formatWindow,
+  inlineSummary,
   lastTurnDelta,
   paceOf,
+  runsOutIn,
   sparkCells,
   terminalLayout,
   trendText,
+  turnsUntil90,
   warningLevel,
   weatherFor,
 } from '../hooks/weather'
@@ -85,6 +88,57 @@ describe('weather', () => {
     expect(cacheView(0, hour, 18 * 60_000)).toEqual({ text: '42m left', tone: 'ok' })
     expect(cacheView(0, hour, 51 * 60_000)).toEqual({ text: '9m left', tone: 'expiring' })
     expect(cacheView(0, hour, hour)).toEqual({ text: 'expired', tone: 'expired' })
+  })
+
+  test('a plan window runs out early only when its rate says so', () => {
+    const now = Date.parse('2026-10-03T12:00:00Z')
+    const in2h40 = new Date(now + 160 * 60_000).toISOString()
+    // 140 minutes in: 20% is fine, 71% runs out in about 57 minutes.
+    expect(runsOutIn({ kind: 'five_hour', percentUsed: 20, resetsAt: in2h40 }, now)).toBeUndefined()
+    expect(Math.round((runsOutIn({ kind: 'five_hour', percentUsed: 71, resetsAt: in2h40 }, now) ?? 0) / 60_000)).toBe(57)
+    expect(runsOutIn({ kind: 'five_hour', percentUsed: 100, resetsAt: in2h40 }, now)).toBe(0)
+    // Five minutes into a window is too early to judge.
+    expect(runsOutIn({ kind: 'five_hour', percentUsed: 30, resetsAt: new Date(now + 295 * 60_000).toISOString() }, now)).toBeUndefined()
+  })
+
+  test('the forecast counts turns until 90% from recent growth', () => {
+    expect(turnsUntil90([100_000], 200_000)).toBeUndefined()
+    expect(turnsUntil90([100_000, 110_000, 120_000], 200_000)).toBe(6)
+    expect(turnsUntil90([100_000, 185_000], 200_000)).toBeUndefined()
+  })
+
+  test('the inline summary reads as three labeled lines', () => {
+    const now = Date.parse('2026-10-03T12:00:00Z')
+    const plan = (five: number) => [
+      { kind: 'five_hour', percentUsed: five, resetsAt: new Date(now + 160 * 60_000).toISOString() },
+      { kind: 'seven_day', percentUsed: 58, resetsAt: new Date(now + 31 * 60 * 60_000).toISOString() },
+    ]
+    const calm = inlineSummary(
+      { tokens: 390_000, window: 1_000_000, percent: 39, rateLimits: plan(20) },
+      [366_000, 378_000, 390_000],
+      97,
+      { text: '42m left', tone: 'ok' },
+      now,
+    )
+    expect(calm).toBe(
+      [
+        'Context  ☁ Cloudy 39% · +1.2% last turn · ~43 turns until 90%',
+        'Cache    97% of the last turn came from cache · expires in 42m',
+        'Plan     5h 20%, resets in 2h 40m · 7d 58%, resets in 1d 7h · both fine at this pace',
+      ].join('\n'),
+    )
+
+    const stormy = inlineSummary(
+      { tokens: 164_000, window: 200_000, percent: 82, rateLimits: plan(71) },
+      [156_000, 160_000, 164_000],
+      91,
+      { text: '6m left', tone: 'expiring' },
+      now,
+    )
+    expect(stormy).toContain('Context  ☇ Storm 82% · +2.0% last turn · ~4 turns until 90% · consider /compact')
+    expect(stormy).toContain('expires in 6m, then your next message re-reads the whole conversation')
+    expect(stormy).toContain('5h 71%, resets in 2h 40m, at this pace it runs out in ~58m · 7d 58%, resets in 1d 7h')
+    expect(stormy).not.toContain('fine at this pace')
   })
 
   test('the last turn says how much it added', () => {

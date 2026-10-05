@@ -12,6 +12,7 @@ import {
   formatPercent,
   formatTokens,
   formatWindow,
+  inlineSummary,
   lastTurnDelta,
   miniText,
   paceOf,
@@ -37,6 +38,10 @@ const tick = atom({ plugin: 'token-weather', key: 'tick' } as const, 0)
 const minimized = atom({ plugin: 'token-weather', key: 'minimized' } as const, false)
 const cacheAt = atom({ plugin: 'token-weather', key: 'cacheAt' } as const, null)
 const cacheTtl = atom({ plugin: 'token-weather', key: 'cacheTtl' } as const, 0)
+const lastHit = atom({ plugin: 'token-weather', key: 'lastHit' } as const, null)
+const inline = atom({ plugin: 'token-weather', key: 'inline' } as const, false)
+
+const INLINE_KEY = 'inline'
 
 const MINIMIZED_KEY = 'minimized'
 
@@ -146,10 +151,18 @@ async function remember($: EngineInterface, figures: Figures): Promise<void> {
   }
 }
 
-/** Loads the saved choice of a minimized band into this session. */
+/** Loads the saved choices, a minimized band and the summary under replies, into this session. */
 async function loadView($: EngineInterface): Promise<void> {
   const saved = await $.store.get(MINIMIZED_KEY)
   await update($, minimized, () => saved === true)
+  const isInline = (await $.store.get(INLINE_KEY)) === true
+  await update($, inline, () => isInline)
+}
+
+/** Turns the summary under each reply on or off, and saves the choice. */
+async function setInline($: EngineInterface, value: boolean): Promise<void> {
+  await update($, inline, () => value)
+  await $.store.set(INLINE_KEY, value)
 }
 
 /** Minimizes or expands the band, and saves the choice for later sessions. */
@@ -191,8 +204,8 @@ export const register: Register = on => {
     const ran = await next(e)
     await $.command.register({
       name: 'token-weather',
-      description: 'Show the forecast as text; "mini" or "full" shrinks or expands the band',
-      argumentHint: '[mini | full]',
+      description: 'Show the forecast as text; "mini" or "full" shrinks or expands the band; "inline on" adds a summary under each reply',
+      argumentHint: '[mini | full | inline on | inline off]',
     })
     await loadView($)
     const usage = await $.session.usage()
@@ -233,11 +246,30 @@ export const register: Register = on => {
     if (e.agentId === undefined) {
       const repliedAt = await $.clock.now()
       await update($, cacheAt, () => repliedAt)
+      const cached = usage.cache_read_input_tokens
+      const input = usage.input_tokens + cached + usage.cache_creation_input_tokens
+      await update($, lastHit, () => (input > 0 ? Math.round((cached / input) * 100) : null))
       const now = await $.session.usage()
       await remember($, now)
       const tokens = now.context.tokens
       if (tokens !== undefined) {
         await update($, history, past => [...past, tokens].slice(-HISTORY_LENGTH))
+      }
+
+      // The summary under the reply: a notice row, which Claude never reads,
+      // so it reaches apps that draw no band without spending context.
+      if (await read($, inline)) {
+        const [snap, past, hit, ttl] = await Promise.all([read($, snapshot), read($, history), read($, lastHit), read($, cacheTtl)])
+        if (snap !== null) {
+          const text = inlineSummary(snap, past, hit, cacheView(repliedAt, ttl, repliedAt), repliedAt)
+          try {
+            await $.session.append({ message: { type: 'system', content: [{ type: 'text', text }] } })
+          } catch (error) {
+            $.ui.log(`token-weather: the summary was not added: ${error instanceof Error ? error.message : String(error)}`, {
+              to: 'debug',
+            })
+          }
+        }
       }
     }
 
@@ -273,7 +305,17 @@ export const register: Register = on => {
   // `/token-weather mini` and `full` switch the band; with no argument, the
   // band as text for any surface, saying whether the band was drawn.
   on('command.run', { command: 'token-weather' }, async ($, e) => {
-    const arg = e.args.trim().toLowerCase()
+    const arg = e.args.trim().toLowerCase().replace(/\s+/g, ' ')
+    if (arg === 'inline on' || arg === 'inline off') {
+      await setInline($, arg === 'inline on')
+
+      return {
+        text:
+          arg === 'inline on'
+            ? 'token-weather: a summary now follows each reply (context, cache and plan). /token-weather inline off stops it.'
+            : 'token-weather: no more summaries under replies.',
+      }
+    }
     if (['mini', 'min', 'minimize', 'hide'].includes(arg)) {
       await setMinimized($, true)
 
@@ -290,6 +332,7 @@ export const register: Register = on => {
     const lines = textReport(figures, past, sum, at, cacheView(await read($, cacheAt), await read($, cacheTtl), at))
     const surfaces = await $.session.surfaces()
     const seen = [...asked].map(([surface, times]) => `${surface} (${times}×)`)
+    if (await read($, inline)) lines.push('Summary under each reply: on (/token-weather inline off stops it).')
     lines.push(
       seen.length > 0
         ? `Band above the prompt: drawn on ${seen.join(', ')}.`

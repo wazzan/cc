@@ -289,3 +289,103 @@ export function cacheView(lastAt: number | null, ttlMs: number, now: number): Ca
 
   return { text: `${formatDuration(left)} left`, tone: left <= ttlMs / 5 ? 'expiring' : 'ok' }
 }
+
+/** How soon a plan window runs out at the rate it has been used, if before it resets. */
+export function runsOutIn(limit: RateWindow, now: number): number | undefined {
+  const length = WINDOW_MS[limit.kind]
+  const elapsed = elapsedFraction(limit.kind, limit.resetsAt, now)
+  if (length === undefined || elapsed === undefined || limit.resetsAt === undefined) return undefined
+  if (limit.percentUsed >= 100) return 0
+  const used = elapsed * length
+  // Too early in the window to judge a rate.
+  if (used < 10 * 60_000 || limit.percentUsed <= 0) return undefined
+  const left = ((100 - limit.percentUsed) / limit.percentUsed) * used
+  const untilReset = Date.parse(limit.resetsAt) - now
+
+  return left < untilReset ? left : undefined
+}
+
+/** Turns until the window reaches 90%, from the growth of the last few turns. */
+export function turnsUntil90(history: number[], window: number): number | undefined {
+  const last = history.at(-1)
+  if (last === undefined || window <= 0) return undefined
+  const growth = history
+    .slice(-6)
+    .map((tokens, i, recent) => tokens - (recent[i - 1] ?? tokens))
+    .filter(delta => delta > 0)
+  if (growth.length < 2) return undefined
+  const perTurn = growth.reduce((sum, delta) => sum + delta, 0) / growth.length
+  const room = window * 0.9 - last
+
+  return room > 0 ? Math.max(1, Math.ceil(room / perTurn)) : undefined
+}
+
+function sharePercent(tokens: number, window: number): string {
+  const share = window > 0 ? (tokens / window) * 100 : 0
+
+  return `${Math.abs(share) < 10 ? Math.abs(share).toFixed(1) : Math.round(Math.abs(share))}%`
+}
+
+/**
+ * The band as three labeled lines of plain text, for the conversation itself:
+ * what surfaces that draw no band (Remote Control's apps) still show.
+ */
+export function inlineSummary(
+  snap: Snapshot,
+  history: number[],
+  lastHit: number | null,
+  cache: CacheView | undefined,
+  now: number,
+): string {
+  const lines: string[] = []
+
+  const weather = weatherFor(snap.percent ?? 0)
+  if (snap.tokens === undefined || snap.percent === undefined) {
+    lines.push(`Context  ${weather.icon} ${weather.word} · forecast after the next reply`)
+  } else {
+    const parts = [`${weather.icon} ${weather.word} ${snap.percent}%`]
+    const delta = lastTurnDelta(history)
+    if (delta !== undefined) parts.push(`${delta.delta < 0 ? '-' : '+'}${sharePercent(delta.delta, snap.window)} last turn`)
+    const level = warningLevel(snap.percent)
+    if (level === 90) {
+      parts.push('compact now (/compact)')
+    } else {
+      const turns = turnsUntil90(history, snap.window)
+      if (turns !== undefined) parts.push(`~${turns} ${turns === 1 ? 'turn' : 'turns'} until 90%`)
+      if (level === 75) parts.push('consider /compact')
+    }
+    lines.push(`Context  ${parts.join(' · ')}`)
+  }
+
+  if (cache !== undefined) {
+    const parts: string[] = []
+    if (lastHit !== null) parts.push(`${lastHit}% of the last turn came from cache`)
+    if (cache.tone === 'expired') parts.push('expired, so your next message re-reads the whole conversation')
+    else if (cache.tone === 'expiring') parts.push(`expires in ${cache.text.replace(/ left$/, '')}, then your next message re-reads the whole conversation`)
+    else parts.push(`expires in ${cache.text.replace(/ left$/, '')}`)
+    lines.push(`Cache    ${parts.join(' · ')}`)
+  }
+
+  const limits = shownLimits(snap).filter(limit => limit.kind !== 'spend_limit')
+  if (limits.length > 0) {
+    let atRisk = false
+    const parts = limits.map(limit => {
+      let text = `${windowLabel(limit.kind)} ${formatPercent(limit.percentUsed)}`
+      if (limit.resetsAt !== undefined) text += `, resets in ${formatDuration(Date.parse(limit.resetsAt) - now)}`
+      const out = runsOutIn(limit, now)
+      if (out === 0) {
+        atRisk = true
+        text += ', limit reached'
+      } else if (out !== undefined) {
+        atRisk = true
+        text += `, at this pace it runs out in ~${formatDuration(out)}`
+      }
+
+      return text
+    })
+    if (!atRisk) parts.push(limits.length > 1 ? 'both fine at this pace' : 'fine at this pace')
+    lines.push(`Plan     ${parts.join(' · ')}`)
+  }
+
+  return lines.join('\n')
+}

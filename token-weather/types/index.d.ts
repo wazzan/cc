@@ -36,6 +36,10 @@ declare module 'claude-code' {
       cacheAt: number | null
       /** The prompt cache's lifetime in ms as Claude Code picks it; 0 when caching is off. */
       cacheTtl: number
+      /** The share of the last main turn's input the cache served, 0 to 100; null before one. */
+      lastHit: number | null
+      /** A summary goes under each reply; saved in $.store across sessions. */
+      inline: boolean
     }
   }
 }
